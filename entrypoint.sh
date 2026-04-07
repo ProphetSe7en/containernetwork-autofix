@@ -247,24 +247,36 @@ else
     log_message "No dependent containers found (yet)"
 fi
 
+# Run the events pipeline as a background job so that bash's main thread
+# is free to receive signals. Without this, bash blocks waiting for the
+# foreground pipeline and defers SIGTERM until the pipeline returns —
+# which never happens because docker events runs forever. Result: docker
+# stop has to wait the full --stop-timeout (default 10s) and then SIGKILL.
+#
+# With background + wait, the trap below fires immediately on SIGTERM
+# (because the wait builtin IS signal-interruptible, unlike foreground
+# pipelines), kills the pipeline children, and exits cleanly within ~1s.
+#
+# The pipeline body itself is byte-identical to upstream — only its
+# foreground/background mode changes.
 docker events --filter "container=${MASTER_CONTAINER}" --filter 'event=start' | while read event
 do
     log_message "${MASTER_CONTAINER} restarted, waiting ${RESTART_WAIT_TIME} seconds for VPN to establish..."
     sleep ${RESTART_WAIT_TIME}
-    
+
     NEW_MASTER_ID=$(get_container_id ${MASTER_CONTAINER})
     log_message "New ${MASTER_CONTAINER} ID: ${NEW_MASTER_ID:0:12}..."
-    
+
     BROKEN_CONTAINERS=$(get_dependent_containers ${CURRENT_MASTER_ID})
-    
+
     if [ -z "$BROKEN_CONTAINERS" ]; then
         log_message "No broken containers found. All dependent containers may have auto-reconnected."
     else
         log_message "Found broken containers: ${BROKEN_CONTAINERS}"
-        
+
         for CONTAINER in ${BROKEN_CONTAINERS}; do
             log_message "Processing ${CONTAINER}..."
-            
+
             CONTAINER_STATE=$(docker inspect ${CONTAINER} --format "{{.State.Status}}" 2>/dev/null)
             WAS_RUNNING=false
             if [ "$CONTAINER_STATE" == "running" ]; then
@@ -273,15 +285,15 @@ do
             else
                 log_message "${CONTAINER} was stopped, will remain stopped after rebuild"
             fi
-            
+
             docker stop ${CONTAINER} 2>/dev/null
             docker rm ${CONTAINER} 2>/dev/null
-            
+
             recreate_container_from_template ${CONTAINER}
-            
+
             if [ $? -eq 0 ]; then
                 log_message "✓ ${CONTAINER} recreated successfully!"
-                
+
                 if [ "$WAS_RUNNING" = false ]; then
                     docker stop ${CONTAINER} 2>/dev/null
                     log_message "${CONTAINER} stopped (preserving original state)"
@@ -291,8 +303,26 @@ do
             fi
         done
     fi
-    
+
     CURRENT_MASTER_ID=${NEW_MASTER_ID}
     log_message "All dependent containers processed."
     rotate_log
-done
+done &
+
+PIPELINE_PID=$!
+
+# SIGTERM/SIGINT handler: kill the pipeline subshell, which closes the pipe
+# to docker events, which then dies. Then exit cleanly.
+shutdown_handler() {
+    log_message "Shutdown signal received — stopping event watcher..."
+    kill "$PIPELINE_PID" 2>/dev/null
+    # Also kill any straggling docker events processes (defensive)
+    pkill -P $$ -f "docker events" 2>/dev/null || true
+    log_message "CNAF stopped cleanly."
+    exit 0
+}
+trap shutdown_handler TERM INT
+
+# wait IS signal-interruptible (unlike foreground pipelines), so SIGTERM
+# will return immediately and trigger shutdown_handler.
+wait "$PIPELINE_PID"
