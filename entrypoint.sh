@@ -46,6 +46,115 @@ get_dependent_containers() {
     echo "${dependents[@]}"
 }
 
+recreate_container_from_template() {
+    local CONTAINER=$1
+    local TEMPLATE="/templates/my-${CONTAINER}.xml"
+    
+    if [ ! -f "${TEMPLATE}" ]; then
+        log_message "✗ ERROR: Template not found: ${TEMPLATE}"
+        return 1
+    fi
+    
+    log_message "Parsing template for ${CONTAINER}..."
+    
+    # Extract basic container info using inline sed commands
+    local REPOSITORY=$(sed -n "s/.*<Repository>\(.*\)<\/Repository>.*/\1/p" "${TEMPLATE}" | head -1)
+    local NETWORK=$(sed -n "s/.*<Network>\(.*\)<\/Network>.*/\1/p" "${TEMPLATE}" | head -1)
+    local PRIVILEGED=$(sed -n "s/.*<Privileged>\(.*\)<\/Privileged>.*/\1/p" "${TEMPLATE}" | head -1)
+    local EXTRA_PARAMS=$(sed -n "s/.*<ExtraParams>\(.*\)<\/ExtraParams>.*/\1/p" "${TEMPLATE}" | head -1)
+    local POST_ARGS=$(sed -n "s/.*<PostArgs>\(.*\)<\/PostArgs>.*/\1/p" "${TEMPLATE}" | head -1)
+    local ICON=$(sed -n "s/.*<Icon>\(.*\)<\/Icon>.*/\1/p" "${TEMPLATE}" | head -1)
+    
+    if [ -z "$REPOSITORY" ]; then
+        log_message "✗ ERROR: Could not parse Repository from template"
+        return 1
+    fi
+    
+    log_message "Repository: ${REPOSITORY}"
+    log_message "Network: ${NETWORK}"
+    
+    # Build docker run command
+    local DOCKER_CMD="docker run -d --name='${CONTAINER}'"
+    
+    # Add Unraid management labels (makes container manageable in Unraid GUI)
+    DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.managed=dockerman"
+    if [ -n "$ICON" ]; then
+        DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.icon='${ICON}'"
+    fi
+    
+    # Add network
+    if [ -n "$NETWORK" ]; then
+        DOCKER_CMD="${DOCKER_CMD} --net='${NETWORK}'"
+    fi
+    
+    # Add privileged
+    if [ "$PRIVILEGED" = "true" ]; then
+        DOCKER_CMD="${DOCKER_CMD} --privileged"
+    fi
+    
+    # Parse Config entries - FIXED: avoid subshell by using process substitution
+    while IFS=: read -r line_num line_content; do
+        # Extract attributes from the Config line
+        local config_type=$(echo "$line_content" | sed -n 's/.*Type="\([^"]*\).*/\1/p')
+        local target=$(echo "$line_content" | sed -n 's/.*Target="\([^"]*\).*/\1/p')
+        local mode=$(echo "$line_content" | sed -n 's/.*Mode="\([^"]*\).*/\1/p')
+        
+        # Get the value (content between tags)
+        local value=$(sed -n "${line_num}s/.*>\([^<]*\)<\/Config>/\1/p" "${TEMPLATE}")
+        
+        # Skip if no value or target
+        [ -z "$value" ] && continue
+        [ -z "$target" ] && continue
+        
+        case "$config_type" in
+            "Path")
+                if [ -n "$mode" ] && [ "$mode" != "{3}" ]; then
+                    DOCKER_CMD="${DOCKER_CMD} -v '${value}':'${target}':'${mode}'"
+                else
+                    DOCKER_CMD="${DOCKER_CMD} -v '${value}':'${target}':'rw'"
+                fi
+                ;;
+            "Variable")
+                DOCKER_CMD="${DOCKER_CMD} -e '${target}'='${value}'"
+                ;;
+            "Port")
+                # Skip port mappings when using container network mode
+                if [[ ! "$NETWORK" =~ ^container: ]]; then
+                    if [ -n "$mode" ] && [ "$mode" != "{3}" ]; then
+                        DOCKER_CMD="${DOCKER_CMD} -p ${value}:${target}/${mode}"
+                    else
+                        DOCKER_CMD="${DOCKER_CMD} -p ${value}:${target}"
+                    fi
+                fi
+                ;;
+            "Label")
+                DOCKER_CMD="${DOCKER_CMD} -l '${target}'='${value}'"
+                ;;
+        esac
+    done < <(grep -n "<Config" "${TEMPLATE}")
+    
+    # Add extra params
+    if [ -n "$EXTRA_PARAMS" ]; then
+        DOCKER_CMD="${DOCKER_CMD} ${EXTRA_PARAMS}"
+    fi
+    
+    # Add repository
+    DOCKER_CMD="${DOCKER_CMD} '${REPOSITORY}'"
+    
+    # Add post args
+    if [ -n "$POST_ARGS" ]; then
+        DOCKER_CMD="${DOCKER_CMD} ${POST_ARGS}"
+    fi
+    
+    log_message "Docker command: ${DOCKER_CMD}"
+    log_message "Executing docker run..."
+    
+    # Execute the command
+    eval ${DOCKER_CMD}
+    
+    return $?
+}
+
 log_message "ContainerNetwork AutoFix (CNAF) starting..."
 log_message "Master Container: ${MASTER_CONTAINER}"
 log_message "Restart Wait Time: ${RESTART_WAIT_TIME}s"
@@ -112,25 +221,17 @@ do
             docker stop ${CONTAINER} 2>/dev/null
             docker rm ${CONTAINER} 2>/dev/null
             
-            TEMPLATE="/templates/my-${CONTAINER}.xml"
+            recreate_container_from_template ${CONTAINER}
             
-            if [ -f "${TEMPLATE}" ]; then
-                log_message "Recreating ${CONTAINER} from template..."
+            if [ $? -eq 0 ]; then
+                log_message "✓ ${CONTAINER} recreated successfully!"
                 
-                /scripts/rebuild_container ${CONTAINER}
-                
-                if [ $? -eq 0 ]; then
-                    log_message "✓ ${CONTAINER} recreated successfully!"
-                    
-                    if [ "$WAS_RUNNING" = false ]; then
-                        docker stop ${CONTAINER} 2>/dev/null
-                        log_message "${CONTAINER} stopped (preserving original state)"
-                    fi
-                else
-                    log_message "✗ ERROR: Failed to recreate ${CONTAINER}"
+                if [ "$WAS_RUNNING" = false ]; then
+                    docker stop ${CONTAINER} 2>/dev/null
+                    log_message "${CONTAINER} stopped (preserving original state)"
                 fi
             else
-                log_message "✗ ERROR: Template not found: ${TEMPLATE}"
+                log_message "✗ ERROR: Failed to recreate ${CONTAINER}"
             fi
         done
     fi
