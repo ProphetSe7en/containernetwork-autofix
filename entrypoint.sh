@@ -46,68 +46,116 @@ get_dependent_containers() {
     echo "${dependents[@]}"
 }
 
+# xml_get: extract text content from a template using xpath, with double
+# entity decoding to match how Unraid Apply handles its templates.
+# Unraid templates routinely contain double-encoded entities like "&amp;gt;"
+# (8 chars representing the literal "&gt;") in fields like ExtraParams.
+# Unraid's Apply button decodes these all the way to ">" before passing to
+# docker run, which requires two passes:
+#   pass 1 (xmlstarlet -T): "&amp;gt;" -> "&gt;"
+#   pass 2 (sed):           "&gt;"     -> ">"
+# The original sed-based parser did zero decoding, leaving literal "&amp;gt;"
+# in --health-cmd strings and breaking healthchecks on every recreated container.
+xml_get() {
+    local template="$1"
+    local xpath="$2"
+    xmlstarlet sel -T -t -v "${xpath}" "${template}" 2>/dev/null \
+        | sed -e 's/&lt;/</g' \
+              -e 's/&gt;/>/g' \
+              -e 's/&quot;/"/g' \
+              -e "s/&apos;/'/g" \
+              -e 's/&amp;/\&/g'
+}
+
 recreate_container_from_template() {
     local CONTAINER=$1
     local TEMPLATE="/templates/my-${CONTAINER}.xml"
-    
+
     if [ ! -f "${TEMPLATE}" ]; then
         log_message "✗ ERROR: Template not found: ${TEMPLATE}"
         return 1
     fi
-    
+
     log_message "Parsing template for ${CONTAINER}..."
-    
-    # Extract basic container info using inline sed commands
-    local REPOSITORY=$(sed -n "s/.*<Repository>\(.*\)<\/Repository>.*/\1/p" "${TEMPLATE}" | head -1)
-    local NETWORK=$(sed -n "s/.*<Network>\(.*\)<\/Network>.*/\1/p" "${TEMPLATE}" | head -1)
-    local PRIVILEGED=$(sed -n "s/.*<Privileged>\(.*\)<\/Privileged>.*/\1/p" "${TEMPLATE}" | head -1)
-    local EXTRA_PARAMS=$(sed -n "s/.*<ExtraParams>\(.*\)<\/ExtraParams>.*/\1/p" "${TEMPLATE}" | head -1)
-    local POST_ARGS=$(sed -n "s/.*<PostArgs>\(.*\)<\/PostArgs>.*/\1/p" "${TEMPLATE}" | head -1)
-    local ICON=$(sed -n "s/.*<Icon>\(.*\)<\/Icon>.*/\1/p" "${TEMPLATE}" | head -1)
-    
+
+    # Extract container metadata using xmlstarlet (handles XML entity decoding)
+    local REPOSITORY=$(xml_get "${TEMPLATE}" "/Container/Repository")
+    local NETWORK=$(xml_get "${TEMPLATE}" "/Container/Network")
+    local PRIVILEGED=$(xml_get "${TEMPLATE}" "/Container/Privileged")
+    local EXTRA_PARAMS=$(xml_get "${TEMPLATE}" "/Container/ExtraParams")
+    local POST_ARGS=$(xml_get "${TEMPLATE}" "/Container/PostArgs")
+    local ICON=$(xml_get "${TEMPLATE}" "/Container/Icon")
+    local WEBUI=$(xml_get "${TEMPLATE}" "/Container/WebUI")
+    local SHELL_VAL=$(xml_get "${TEMPLATE}" "/Container/Shell")
+    local SUPPORT=$(xml_get "${TEMPLATE}" "/Container/Support")
+    local PROJECT=$(xml_get "${TEMPLATE}" "/Container/Project")
+
     if [ -z "$REPOSITORY" ]; then
         log_message "✗ ERROR: Could not parse Repository from template"
         return 1
     fi
-    
+
     log_message "Repository: ${REPOSITORY}"
     log_message "Network: ${NETWORK}"
-    
+
     # Build docker run command
     local DOCKER_CMD="docker run -d --name='${CONTAINER}'"
-    
+
     # Add Unraid management labels (makes container manageable in Unraid GUI)
+    # Upstream only emits icon + managed; we add webui/shell/support/project
+    # so right-click WebUI/console menus keep working after rebuild (Bug B fix).
     DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.managed=dockerman"
     if [ -n "$ICON" ]; then
         DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.icon='${ICON}'"
     fi
-    
+    if [ -n "$WEBUI" ]; then
+        DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.webui='${WEBUI}'"
+    fi
+    if [ -n "$SHELL_VAL" ]; then
+        DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.shell='${SHELL_VAL}'"
+    fi
+    if [ -n "$SUPPORT" ]; then
+        DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.support='${SUPPORT}'"
+    fi
+    if [ -n "$PROJECT" ]; then
+        DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.project='${PROJECT}'"
+    fi
+
     # Add network
     if [ -n "$NETWORK" ]; then
         DOCKER_CMD="${DOCKER_CMD} --net='${NETWORK}'"
     fi
-    
+
     # Add privileged
     if [ "$PRIVILEGED" = "true" ]; then
         DOCKER_CMD="${DOCKER_CMD} --privileged"
     fi
-    
-    # Parse Config entries - FIXED: avoid subshell by using process substitution
-    while IFS=: read -r line_num line_content; do
-        # Extract attributes from the Config line
-        local config_type=$(echo "$line_content" | sed -n 's/.*Type="\([^"]*\).*/\1/p')
-        local target=$(echo "$line_content" | sed -n 's/.*Target="\([^"]*\).*/\1/p')
-        local mode=$(echo "$line_content" | sed -n 's/.*Mode="\([^"]*\).*/\1/p')
-        
-        # Get the value (content between tags)
-        local value=$(sed -n "${line_num}s/.*>\([^<]*\)<\/Config>/\1/p" "${TEMPLATE}")
-        
-        # Skip if no value or target
+
+    # Parse <Config> entries via xmlstarlet xpath iteration. This replaces
+    # the upstream grep+sed line-tracking approach which had no Device case
+    # (Bug C fix). Logic for Path/Variable/Port/Label is identical to upstream.
+    #
+    # NOTE: This count() call deliberately does NOT use xml_get / the sed
+    # decoding pipeline. count() returns a number, not a string — entity
+    # decoding would be a no-op at best and a parse error at worst.
+    local config_count=$(xmlstarlet sel -t -v "count(/Container/Config)" "${TEMPLATE}" 2>/dev/null)
+    [ -z "$config_count" ] && config_count=0
+
+    local i=1
+    while [ "$i" -le "$config_count" ]; do
+        local config_type=$(xml_get "${TEMPLATE}" "/Container/Config[${i}]/@Type")
+        local target=$(xml_get "${TEMPLATE}" "/Container/Config[${i}]/@Target")
+        local mode=$(xml_get "${TEMPLATE}" "/Container/Config[${i}]/@Mode")
+        local value=$(xml_get "${TEMPLATE}" "/Container/Config[${i}]")
+
+        i=$((i + 1))
+
+        # Skip if no value or target (matches upstream behavior)
         [ -z "$value" ] && continue
-        [ -z "$target" ] && continue
-        
+
         case "$config_type" in
             "Path")
+                [ -z "$target" ] && continue
                 if [ -n "$mode" ] && [ "$mode" != "{3}" ]; then
                     DOCKER_CMD="${DOCKER_CMD} -v '${value}':'${target}':'${mode}'"
                 else
@@ -115,9 +163,11 @@ recreate_container_from_template() {
                 fi
                 ;;
             "Variable")
+                [ -z "$target" ] && continue
                 DOCKER_CMD="${DOCKER_CMD} -e '${target}'='${value}'"
                 ;;
             "Port")
+                [ -z "$target" ] && continue
                 # Skip port mappings when using container network mode
                 if [[ ! "$NETWORK" =~ ^container: ]]; then
                     if [ -n "$mode" ] && [ "$mode" != "{3}" ]; then
@@ -128,10 +178,16 @@ recreate_container_from_template() {
                 fi
                 ;;
             "Label")
+                [ -z "$target" ] && continue
                 DOCKER_CMD="${DOCKER_CMD} -l '${target}'='${value}'"
                 ;;
+            "Device")
+                # Hardware passthrough: GPU (/dev/dri), DVB tuners, USB.
+                # Bug C fix — upstream had no Device case.
+                DOCKER_CMD="${DOCKER_CMD} --device='${value}'"
+                ;;
         esac
-    done < <(grep -n "<Config" "${TEMPLATE}")
+    done
     
     # Add extra params
     if [ -n "$EXTRA_PARAMS" ]; then

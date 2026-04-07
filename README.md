@@ -1,10 +1,17 @@
-# ContainerNetwork AutoFix (CNAF)
+# ContainerNetwork AutoFix (CNAF) — ProphetSe7en fork
 
 Automatically recreates Docker containers that depend on a master container's network when the master container restarts. Designed for Unraid but works on any Docker host.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Docker Pulls](https://img.shields.io/docker/pulls/buxxdev/containernetwork-autofix)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+> **About this fork:** This is a fork of [`buxxdev/containernetwork-autofix`](https://github.com/buxxdev/containernetwork-autofix) with the template parser rewritten using `xmlstarlet` instead of hand-rolled `sed` regex. The rewrite fixes three bugs in the upstream parser:
+>
+> - **Healthchecks broken after rebuild** — `<ExtraParams>` was not XML-entity-decoded, leaving literal `&amp;gt;` instead of `>` in `--health-cmd` strings (containers stuck `unhealthy`).
+> - **WebUI right-click broken in Unraid GUI** ([upstream issue #1](https://github.com/buxxdev/containernetwork-autofix/issues/1)) — recreated containers were missing `net.unraid.docker.{webui,shell,support,project}` labels.
+> - **Hardware passthrough lost on rebuild** ([upstream issue #2](https://github.com/buxxdev/containernetwork-autofix/issues/2)) — the parser had no `Device` case, so GPU/DVB/USB devices were stripped.
+>
+> The fork keeps the upstream env-var contract intact (`MASTER_CONTAINER`, `RESTART_WAIT_TIME`, etc.) so it works as a drop-in replacement — only the `<Repository>` line in your Unraid template needs to change. See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ## Problem It Solves
 
@@ -43,10 +50,13 @@ docker run -d \
   -e RESTART_WAIT_TIME='15' \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /boot/config/plugins/dockerMan/templates-user:/templates:ro \
-  -v /usr/local/emhttp/plugins/dynamix.docker.manager/scripts:/scripts:ro \
   -v /mnt/user/appdata/containernetwork-autofix:/var/log \
-  buxxdev/containernetwork-autofix:latest
+  ghcr.io/prophetse7en/cnaf:latest
 ```
+
+### Switching from upstream
+
+Already running `buxxdev/containernetwork-autofix`? Stop the container, change the `<Repository>` in your Unraid template from `buxxdev/containernetwork-autofix:latest` to `ghcr.io/prophetse7en/cnaf:latest`, then Apply. All env vars and mounts stay the same — the fork is a drop-in replacement.
 
 ## Configuration
 
@@ -68,7 +78,6 @@ All configuration is done via environment variables:
 |--------|---------------|-------------|
 | `/var/run/docker.sock` | `/var/run/docker.sock` | Access to Docker daemon |
 | `/boot/config/plugins/dockerMan/templates-user` | `/templates` | Unraid container templates |
-| `/usr/local/emhttp/plugins/dynamix.docker.manager/scripts` | `/scripts` | Unraid rebuild scripts |
 
 ### Optional
 

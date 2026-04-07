@@ -1,0 +1,4 @@
+dev/
+screenshots/
+*.log
+.DS_Store
