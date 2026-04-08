@@ -51,12 +51,12 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /boot/config/plugins/dockerMan/templates-user:/templates:ro \
   -v /mnt/user/appdata/containernetwork-autofix:/var/log \
-  ghcr.io/prophetse7en/cnaf:latest
+  ghcr.io/prophetse7en/containernetwork-autofix:latest
 ```
 
 ### Switching from upstream
 
-Already running `buxxdev/containernetwork-autofix`? Stop the container, change the `<Repository>` in your Unraid template from `buxxdev/containernetwork-autofix:latest` to `ghcr.io/prophetse7en/cnaf:latest`, then Apply. All env vars and mounts stay the same — the fork is a drop-in replacement.
+Already running `buxxdev/containernetwork-autofix`? Stop the container, change the `<Repository>` in your Unraid template from `buxxdev/containernetwork-autofix:latest` to `ghcr.io/prophetse7en/containernetwork-autofix:latest`, then Apply. All env vars and mounts stay the same — the fork is a drop-in replacement.
 
 ## Configuration
 
@@ -159,23 +159,25 @@ tail -f /mnt/user/appdata/containernetwork-autofix/containernetwork-autofix.log
 
 ## Contributing
 
-Issues and pull requests welcome!
+Issues and pull requests welcome on the fork!
 
-**Repository:** https://github.com/buxxdev/containernetwork-autofix
+**Fork repository:** https://github.com/prophetse7en/containernetwork-autofix
+**Upstream repository:** https://github.com/buxxdev/containernetwork-autofix
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file
+MIT License — see [LICENSE](LICENSE). Original copyright © buxxdev, fork copyright © ProphetSe7en.
 
 ## Support
 
-- **GitHub Issues:** https://github.com/buxxdev/containernetwork-autofix/issues
-- **Unraid Forums:** [Forum Thread]
-- **Docker Hub:** https://hub.docker.com/r/buxxdev/containernetwork-autofix
+- **Fork issues:** https://github.com/prophetse7en/containernetwork-autofix/issues
+- **GHCR:** https://github.com/prophetse7en/containernetwork-autofix/pkgs/container/containernetwork-autofix
+- **Upstream issues:** https://github.com/buxxdev/containernetwork-autofix/issues
+- **Unraid Forums (upstream thread):** https://forums.unraid.net/topic/194313-support-containernetwork-autofix-cnaf-auto-fix-vpn-dependent-containers/
 
 ## Credits
 
-Created by [@buxxdev](https://github.com/buxxdev) to solve automatic container recreation when using network container dependencies on Unraid.
+Original tool created by [@buxxdev](https://github.com/buxxdev). Fork maintained by [@ProphetSe7en](https://github.com/prophetse7en) with bug fixes for the Unraid template parser. See [CREDITS.md](CREDITS.md).
 
 ---
 

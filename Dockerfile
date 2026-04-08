@@ -4,7 +4,7 @@ ARG VERSION=dev
 
 LABEL maintainer="ProphetSe7en"
 LABEL description="ContainerNetwork AutoFix (CNAF) - Automatically recreates dependent containers when master container restarts"
-LABEL org.opencontainers.image.source="https://github.com/ProphetSe7en/cnaf"
+LABEL org.opencontainers.image.source="https://github.com/prophetse7en/containernetwork-autofix"
 LABEL org.opencontainers.image.description="Fork of buxxdev/containernetwork-autofix with xmlstarlet-based template parsing"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.version="${VERSION}"

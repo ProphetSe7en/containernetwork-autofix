@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [1.1.0] — 2026-04-07
 
-First release of the **ProphetSe7en/cnaf** fork of `buxxdev/containernetwork-autofix`.
+First release of the **ProphetSe7en/containernetwork-autofix** fork of `buxxdev/containernetwork-autofix`.
 
 ### Fixed
 

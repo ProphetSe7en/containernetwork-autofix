@@ -1,15 +1,22 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>ContainerNetwork-AutoFix</Name>
-  <Repository>buxxdev/containernetwork-autofix:latest</Repository>
-  <Registry>https://hub.docker.com/r/buxxdev/containernetwork-autofix</Registry>
+  <Repository>ghcr.io/prophetse7en/containernetwork-autofix:latest</Repository>
+  <Registry>https://github.com/prophetse7en/containernetwork-autofix/pkgs/container/containernetwork-autofix</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://forums.unraid.net/topic/194313-support-containernetwork-autofix-cnaf-auto-fix-vpn-dependent-containers/</Support>
-  <Project>https://github.com/buxxdev/containernetwork-autofix</Project>
+  <Support>https://github.com/prophetse7en/containernetwork-autofix/issues</Support>
+  <Project>https://github.com/prophetse7en/containernetwork-autofix</Project>
   <Overview>ContainerNetwork AutoFix (CNAF) - Automatically recreates Docker containers that depend on a master container's network when the master container restarts. Perfect for containers routing through VPN containers like GluetunVPN.&#xD;
+&#xD;
+This is the ProphetSe7en fork of buxxdev/containernetwork-autofix with the Unraid template parser rewritten using xmlstarlet. The rewrite fixes three bugs in the upstream sed-based parser:&#xD;
+- Healthchecks broken after rebuild (XML entities not decoded)&#xD;
+- WebUI right-click broken in Unraid GUI (missing net.unraid.docker.* labels)&#xD;
+- Hardware passthrough lost on rebuild (no Device case in parser)&#xD;
+&#xD;
+The fork is a drop-in replacement: same env vars, same mounts, same behavior - only the Repository line needs to change.&#xD;
 &#xD;
 When a master container (e.g., VPN) restarts and gets a new container ID, dependent containers using --net=container: lose network connectivity. CNAF automatically detects and recreates those dependent containers.&#xD;
 &#xD;
@@ -21,8 +28,8 @@ Features:&#xD;
 - Zero manual configuration needed</Overview>
   <Category>Tools: Network:VPN Status:Stable</Category>
   <WebUI/>
-  <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/buxxdev/containernetwork-autofix/main/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/prophetse7en/containernetwork-autofix/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/prophetse7en/containernetwork-autofix/main/icon.png</Icon>
   <ExtraParams>--restart=unless-stopped -v /var/run/docker.sock:/var/run/docker.sock -v /boot/config/plugins/dockerMan/templates-user:/templates:ro</ExtraParams>
   <PostArgs/>
   <CPUset/>
@@ -31,7 +38,7 @@ Features:&#xD;
   <DonateLink/>
   <Requires/>
   <Config Name="AppData" Target="/var/log" Default="/mnt/user/appdata/containernetwork-autofix" Mode="rw" Description="Optional: Persistent storage for logs" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/containernetwork-autofix</Config>
-  <Config Name="Master Container Name" Target="MASTER_CONTAINER" Default="GluetunVPN|OpenVPN-Client|WireGuard|NordVPN|binhex-delugevpn|binhex-qbittorrentvpn" Mode="" Description="Select your VPN/master container from the dropdown. For custom container names, click EDIT and enter the name in the Value field." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Master Container Name" Target="MASTER_CONTAINER" Default="vpn-gateway|GluetunVPN|OpenVPN-Client|WireGuard|NordVPN|binhex-delugevpn|binhex-qbittorrentvpn" Mode="" Description="Select your VPN/master container from the dropdown. For custom container names, click EDIT and enter the name in the Value field." Type="Variable" Display="always" Required="true" Mask="false">vpn-gateway</Config>
   <Config Name="Restart Wait Time" Target="RESTART_WAIT_TIME" Default="15" Mode="" Description="Seconds to wait after master container restarts before recreating dependents (allows VPN to establish)" Type="Variable" Display="always" Required="false" Mask="false">15</Config>
   <Config Name="Max Log Lines" Target="MAX_LOG_LINES" Default="1000" Mode="" Description="Maximum number of log lines to keep (automatic rotation)" Type="Variable" Display="advanced" Required="false" Mask="false">1000</Config>
   <Config Name="Max Retries" Target="MAX_RETRIES" Default="10" Mode="" Description="Number of times to retry finding master container on startup" Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
