@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] — 2026-04-08
+
+### Fixed
+
+- **Log timestamps ignored the `TZ` environment variable** and always
+  showed UTC. Root cause: the Alpine base image was missing `tzdata`,
+  so glibc/musl could not resolve zone names and fell back to UTC
+  regardless of what `TZ` was set to. `tzdata` is now installed, and
+  the Unraid template exposes a `Timezone` variable (default
+  `Europe/Oslo`, blank or `UTC` keeps UTC).
+
+  Existing log format is unchanged — only the displayed clock shifts
+  to match the configured zone.
+
 ## [1.1.0] — 2026-04-07
 
 First release of the **ProphetSe7en/containernetwork-autofix** fork of `buxxdev/containernetwork-autofix`.

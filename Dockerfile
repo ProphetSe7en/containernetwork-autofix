@@ -14,7 +14,8 @@ LABEL org.opencontainers.image.version="${VERSION}"
 # - docker-cli:  container management
 # - xmlstarlet:  proper XML parser (replaces brittle sed-based template parsing)
 # - procps:      pgrep for healthcheck (busybox pgrep doesn't support -f)
-RUN apk add --no-cache bash docker-cli xmlstarlet procps
+# - tzdata:      zoneinfo files so the TZ env var is honored in log timestamps
+RUN apk add --no-cache bash docker-cli xmlstarlet procps tzdata
 
 # Create app directory
 WORKDIR /app

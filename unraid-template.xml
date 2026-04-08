@@ -38,6 +38,7 @@ Features:&#xD;
   <DonateLink/>
   <Requires/>
   <Config Name="AppData" Target="/var/log" Default="/mnt/user/appdata/containernetwork-autofix" Mode="rw" Description="Optional: Persistent storage for logs" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/containernetwork-autofix</Config>
+  <Config Name="Timezone" Target="TZ" Default="Europe/Oslo" Mode="" Description="Timezone for log timestamps (e.g. Europe/Oslo, America/New_York, UTC). Leave blank or set to UTC to keep UTC timestamps." Type="Variable" Display="always" Required="false" Mask="false">Europe/Oslo</Config>
   <Config Name="Master Container Name" Target="MASTER_CONTAINER" Default="vpn-gateway|GluetunVPN|OpenVPN-Client|WireGuard|NordVPN|binhex-delugevpn|binhex-qbittorrentvpn" Mode="" Description="Select your VPN/master container from the dropdown. For custom container names, click EDIT and enter the name in the Value field." Type="Variable" Display="always" Required="true" Mask="false">vpn-gateway</Config>
   <Config Name="Restart Wait Time" Target="RESTART_WAIT_TIME" Default="15" Mode="" Description="Seconds to wait after master container restarts before recreating dependents (allows VPN to establish)" Type="Variable" Display="always" Required="false" Mask="false">15</Config>
   <Config Name="Max Log Lines" Target="MAX_LOG_LINES" Default="1000" Mode="" Description="Maximum number of log lines to keep (automatic rotation)" Type="Variable" Display="advanced" Required="false" Mask="false">1000</Config>
