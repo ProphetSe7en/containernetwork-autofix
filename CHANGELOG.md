@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] — 2026-04-22
+
+### Changed
+
+- **Alpine base image pinned to `3.21`** (was `alpine:latest`). Each build
+  now produces a reproducible image and picks up Alpine security patches
+  only when the pin is deliberately bumped. Matches the rest of the
+  ProphetSe7en container fleet.
+
+### Added
+
+- **`SECURITY.md`** describing the attack surface (Docker socket mount,
+  template parsing, `docker run` argument construction), what's mitigated,
+  what's deferred, and how to report a vulnerability privately via GitHub
+  security advisories.
+
 ## [1.1.1] — 2026-04-08
 
 ### Fixed

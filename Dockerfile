@@ -1,4 +1,7 @@
-FROM alpine:latest
+# Pinned Alpine for reproducibility + predictable security upgrade cadence.
+# Bump deliberately when upstream Alpine ships a patch we want. Matches the
+# rest of the ProphetSe7en fleet (container-base is on 3.21).
+FROM alpine:3.21
 
 ARG VERSION=dev
 

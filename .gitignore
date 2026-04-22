@@ -2,3 +2,6 @@ dev/
 screenshots/
 *.log
 .DS_Store
+
+# Internal AI-assistance orientation — not public-facing
+CLAUDE.md
