@@ -27,6 +27,15 @@ Features:&#xD;
 - Automatic log rotation&#xD;
 - Zero manual configuration needed</Overview>
   <Category>Tools: Network:VPN Status:Stable</Category>
+  <Date>2026-04-22</Date>
+  <Changes>
+### 2026-04-22
+- v1.1.2: Alpine base image pinned to 3.21 (was `alpine:latest`) for reproducible builds and predictable security-patch cadence. Added SECURITY.md describing attack surface + reporting channel. No runtime behavior change.
+### 2026-04-08
+- v1.1.1: Fix timezone handling in log timestamps. `tzdata` is now installed and the template exposes a Timezone variable. Set `TZ` to your local zone (e.g. `Europe/Oslo`) to get log timestamps in local time. Blank or `UTC` keeps UTC.
+### 2026-04-07
+- v1.1.0: First public release of the ProphetSe7en fork. Three parser bugs fixed via xmlstarlet rewrite: healthchecks broken after rebuild (XML entities not decoded), WebUI right-click broken (missing net.unraid.docker.* labels), hardware passthrough lost on rebuild (Device config type added). Drop-in replacement — only the Repository line changes.
+  </Changes>
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/prophetse7en/containernetwork-autofix/main/unraid-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/prophetse7en/containernetwork-autofix/main/icon.png</Icon>
