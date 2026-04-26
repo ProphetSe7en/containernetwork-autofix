@@ -27,8 +27,10 @@ Features:&#xD;
 - Automatic log rotation&#xD;
 - Zero manual configuration needed</Overview>
   <Category>Tools: Network:VPN Status:Stable</Category>
-  <Date>2026-04-22</Date>
+  <Date>2026-04-26</Date>
   <Changes>
+### 2026-04-26
+- v1.2.0: Fixes duplicate `--net=` flag in `docker run` for VPN-routed containers. Templates with `&lt;Network&gt;none&lt;/Network&gt;` plus `--net=container:X` in ExtraParams used to produce two `--net=` flags, which Docker 24+ rejects with exit 125 (containers ended up in a broken Created state, unable to start from Unraid GUI). CNAF now mirrors Unraid Apply's behavior and skips the template Network field when ExtraParams already specifies one. Added regression test in `test-net-dedup.sh`.
 ### 2026-04-22
 - v1.1.2: Alpine base image pinned to 3.21 (was `alpine:latest`) for reproducible builds and predictable security-patch cadence. Added SECURITY.md describing attack surface + reporting channel. No runtime behavior change.
 ### 2026-04-08

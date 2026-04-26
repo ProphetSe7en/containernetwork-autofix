@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] — 2026-04-26
+
+### Fixed
+
+- **Duplicate `--net=` flag in `docker run` for VPN-routed containers.**
+  Unraid templates that route a container through a VPN typically carry
+  both `<Network>none</Network>` AND a `--net=container:X` entry in
+  ExtraParams. CNAF used to emit both, producing two `--net=` flags in
+  the recreate command. On Docker ≤ 23 this was a silent "last wins"
+  and worked by accident. Docker 24+ (which ships with current Unraid
+  releases) validates and returns exit code 125 even though the
+  container ID has already been allocated. Result: dependent containers
+  ended up in a broken `Created` state with both network modes pinned,
+  and Unraid could no longer start them from the GUI ("No such
+  container" error in dockerMan).
+
+  CNAF now mirrors Unraid Apply's behavior — when ExtraParams already
+  contains `--net=` or `--network=`, the `<Network>` template field is
+  skipped (with an info log line for debugging). Detection regex guards
+  against false positives on `--net-alias` and on `net=` inside other
+  flag values.
+
+  Real-world trigger: VPN gateway image update → master container
+  recreated → CNAF tried to recreate dependent containers (sabnzbd,
+  qbit-sonarr, qbit-radarr) and emitted `docker run -d ... --net='none'
+  ... --net=container:vpn-gateway ...`. All three "succeeded" (container
+  IDs printed) but the eval returned non-zero and the containers were
+  unstartable.
+
+### Added
+
+- **`test-net-dedup.sh`** — bash regression test for the network
+  flag deduplication logic. Eight cases covering the original bug,
+  bridge fallback, `--network=` long-form alias, false-positive guards
+  for `--net-alias` and string-matching `net=` inside env values, empty
+  Network field, and `--net <value>` space-separated form. Run before
+  releases or after any change to the network-emit block in
+  `entrypoint.sh`. No Docker daemon required.
+
 ## [1.1.2] — 2026-04-22
 
 ### Changed

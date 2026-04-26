@@ -121,9 +121,30 @@ recreate_container_from_template() {
         DOCKER_CMD="${DOCKER_CMD} -l net.unraid.docker.project='${PROJECT}'"
     fi
 
-    # Add network
+    # Add network — but skip if EXTRA_PARAMS already specifies one.
+    #
+    # Unraid templates that route a container through a VPN container
+    # commonly carry both `<Network>none</Network>` AND a `--net=container:X`
+    # entry in ExtraParams. Unraid's own Apply button intelligently uses
+    # only the ExtraParams value; CNAF used to emit both, producing a
+    # docker run with two `--net=` flags.
+    #
+    # On Docker ≤ 23 this was a silent "last wins" — broken-looking but
+    # functional. On Docker 24+ (which ships with current Unraid releases)
+    # the daemon validates and returns exit code 125 even though the
+    # container ID has already been allocated. The container ends up in
+    # a broken Created state with both network modes pinned, and Unraid
+    # cannot start it from the GUI ("No such container" via dockerMan).
+    #
+    # Detection regex matches `--net=`, `--net `, `--network=`, and
+    # `--network ` either at the start of EXTRA_PARAMS or following
+    # whitespace, so it doesn't false-positive on tokens like `--net-alias`.
     if [ -n "$NETWORK" ]; then
-        DOCKER_CMD="${DOCKER_CMD} --net='${NETWORK}'"
+        if echo "$EXTRA_PARAMS" | grep -qE '(^|[[:space:]])--net(work)?(=|[[:space:]])'; then
+            log_message "Network field present but ExtraParams contains --net/--network — using ExtraParams value (avoids duplicate --net flag)"
+        else
+            DOCKER_CMD="${DOCKER_CMD} --net='${NETWORK}'"
+        fi
     fi
 
     # Add privileged

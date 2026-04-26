@@ -2,7 +2,7 @@
 
 Automatically recreates Docker containers that depend on a master container's network when the master container restarts. Designed for Unraid but works on any Docker host.
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > **About this fork:** This is a fork of [`buxxdev/containernetwork-autofix`](https://github.com/buxxdev/containernetwork-autofix) with the template parser rewritten using `xmlstarlet` instead of hand-rolled `sed` regex. The rewrite fixes three bugs in the upstream parser:
