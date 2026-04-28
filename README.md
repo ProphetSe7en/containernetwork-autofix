@@ -175,6 +175,10 @@ MIT License — see [LICENSE](LICENSE). Original copyright © buxxdev, fork copy
 - **Upstream issues:** https://github.com/buxxdev/containernetwork-autofix/issues
 - **Unraid Forums (upstream thread):** https://forums.unraid.net/topic/194313-support-containernetwork-autofix-cnaf-auto-fix-vpn-dependent-containers/
 
+## Development
+
+The fork is maintained with active AI assistance (Claude, Anthropic) under human direction. Bug-fix decisions, code review, testing on a real Unraid + Docker stack, and releases are done by ProphetSe7en. Issues and PRs go through a human review.
+
 ## Credits
 
 Original tool created by [@buxxdev](https://github.com/buxxdev). Fork maintained by [@ProphetSe7en](https://github.com/prophetse7en) with bug fixes for the Unraid template parser. See [CREDITS.md](CREDITS.md).
