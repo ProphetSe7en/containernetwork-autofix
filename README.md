@@ -69,6 +69,7 @@ All configuration is done via environment variables:
 | `MAX_LOG_LINES` | `1000` | Maximum number of log lines to keep (automatic rotation) |
 | `MAX_RETRIES` | `10` | Number of times to retry finding master container on startup |
 | `RETRY_DELAY` | `10` | Seconds between retry attempts |
+| `ALWAYS_START_BROKEN_CONTAINERS` | `0` | Restart all broken containers regardless of previous state |
 
 ## Volume Mounts
 

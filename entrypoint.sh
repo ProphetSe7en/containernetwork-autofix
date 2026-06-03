@@ -10,6 +10,7 @@ LOG_FILE="${LOG_FILE:-/var/log/containernetwork-autofix.log}"
 MAX_LOG_LINES="${MAX_LOG_LINES:-1000}"
 MAX_RETRIES="${MAX_RETRIES:-10}"
 RETRY_DELAY="${RETRY_DELAY:-10}"
+ALWAYS_START_BROKEN_CONTAINERS="${ALWAYS_START_BROKEN_CONTAINERS:0}"
 # ================================================================
 
 log_message() {
@@ -300,11 +301,17 @@ do
 
             CONTAINER_STATE=$(docker inspect ${CONTAINER} --format "{{.State.Status}}" 2>/dev/null)
             WAS_RUNNING=false
-            if [ "$CONTAINER_STATE" == "running" ]; then
+
+            if [ "$ALWAYS_START_BROKEN_CONTAINERS" == "1" ]; then
                 WAS_RUNNING=true
-                log_message "${CONTAINER} was running, will restart after rebuild"
+                log_message "${CONTAINER} was ${CONTAINER_STATE}, will restart after rebuild"
             else
-                log_message "${CONTAINER} was stopped, will remain stopped after rebuild"
+                if [ "$CONTAINER_STATE" == "running" ]; then
+                    WAS_RUNNING=true
+                    log_message "${CONTAINER} was running, will restart after rebuild"
+                else
+                    log_message "${CONTAINER} was stopped, will remain stopped after rebuild"
+                fi
             fi
 
             docker stop ${CONTAINER} 2>/dev/null

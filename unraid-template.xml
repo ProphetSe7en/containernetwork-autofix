@@ -54,4 +54,5 @@ Features:&#xD;
   <Config Name="Max Log Lines" Target="MAX_LOG_LINES" Default="1000" Mode="" Description="Maximum number of log lines to keep (automatic rotation)" Type="Variable" Display="advanced" Required="false" Mask="false">1000</Config>
   <Config Name="Max Retries" Target="MAX_RETRIES" Default="10" Mode="" Description="Number of times to retry finding master container on startup" Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
   <Config Name="Retry Delay" Target="RETRY_DELAY" Default="10" Mode="" Description="Seconds between retry attempts when finding master container" Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
+  <Config Name="Always Restart Broken Containers" Target="ALWAYS_START_BROKEN_CONTAINERS" Default="0|1" Mode="" Description="Restart all broken containers regardless of previous state" Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
 </Container>
