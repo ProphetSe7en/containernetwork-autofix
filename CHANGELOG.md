@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] — 2026-06-06
+
+### Security
+
+- **Passwords and API keys are masked in the log file.** When CNAF
+  recreates a container, it writes a record of the rebuild to
+  `/mnt/user/appdata/containernetwork-autofix/containernetwork-autofix.log`.
+  The log shows `-e PASSWORD='***'` instead of the actual value, so
+  passwords, tokens, and API keys for your containers (qBittorrent,
+  Sonarr/Radarr, Plex Pass, VPN keys, etc.) stay private even if the
+  log file is shared or backed up. The container itself still receives
+  the real value — only the on-disk log string is sanitized.
+
+  If you have an existing log file, delete or rotate it once to clear
+  any previously-logged plaintext values.
+
 ## [1.2.0] — 2026-04-26
 
 ### Fixed

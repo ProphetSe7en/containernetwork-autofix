@@ -223,7 +223,12 @@ recreate_container_from_template() {
         DOCKER_CMD="${DOCKER_CMD} ${POST_ARGS}"
     fi
     
-    log_message "Docker command: ${DOCKER_CMD}"
+    # Mask env-var values in the log line. The executed DOCKER_CMD is
+    # unchanged; only the log string is sanitized. Keeps passwords,
+    # API keys, and tokens out of the log file even if the file is
+    # shared or backed up.
+    SAFE_CMD=$(echo "${DOCKER_CMD}" | sed -E "s/(-e '[^']+')='[^']*'/\1='***'/g")
+    log_message "Docker command: ${SAFE_CMD}"
     log_message "Executing docker run..."
     
     # Execute the command
