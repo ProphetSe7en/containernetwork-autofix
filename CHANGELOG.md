@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] — 2026-06-06
+
+### Added
+
+- **Option to bring stopped dependents back up when the master restarts.**
+  New environment variable `RESTART_STOPPED_DEPENDENTS` (default `false`).
+  When `true`, dependents that happen to be stopped at the moment the
+  master container restarts get started after the rebuild, alongside the
+  ones that were already running. Default behavior is unchanged: stopped
+  dependents stay stopped.
+
+  This only triggers on the master-restart event. CNAF still does not
+  auto-restart a container that crashes on its own. If a container has a
+  real problem you want to investigate, stop it before triggering CNAF
+  and it will stay stopped (with the default setting) or get restarted
+  next time the master cycles (with the new setting).
+
+  Concept credit: pull request from @conFrituur exploring the same idea.
+
 ## [1.2.1] — 2026-06-06
 
 ### Security

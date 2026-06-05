@@ -10,6 +10,7 @@ LOG_FILE="${LOG_FILE:-/var/log/containernetwork-autofix.log}"
 MAX_LOG_LINES="${MAX_LOG_LINES:-1000}"
 MAX_RETRIES="${MAX_RETRIES:-10}"
 RETRY_DELAY="${RETRY_DELAY:-10}"
+RESTART_STOPPED_DEPENDENTS="${RESTART_STOPPED_DEPENDENTS:-false}"
 # ================================================================
 
 log_message() {
@@ -241,6 +242,7 @@ log_message "ContainerNetwork AutoFix (CNAF) starting..."
 log_message "Master Container: ${MASTER_CONTAINER}"
 log_message "Restart Wait Time: ${RESTART_WAIT_TIME}s"
 log_message "Max Retries: ${MAX_RETRIES}"
+log_message "Restart Stopped Dependents: ${RESTART_STOPPED_DEPENDENTS}"
 rotate_log
 
 # Wait for master container to be ready with retry logic
@@ -308,8 +310,15 @@ do
             if [ "$CONTAINER_STATE" == "running" ]; then
                 WAS_RUNNING=true
                 log_message "${CONTAINER} was running, will restart after rebuild"
+            elif [ "$RESTART_STOPPED_DEPENDENTS" = "true" ]; then
+                # Opt-in: pick up dependents that were stopped at trigger time
+                # and start them after the rebuild. Only fires during the
+                # master-container restart trigger, not as a continuous
+                # healthcheck loop.
+                WAS_RUNNING=true
+                log_message "${CONTAINER} was ${CONTAINER_STATE}, will start after rebuild (RESTART_STOPPED_DEPENDENTS=true)"
             else
-                log_message "${CONTAINER} was stopped, will remain stopped after rebuild"
+                log_message "${CONTAINER} was ${CONTAINER_STATE}, will remain stopped after rebuild"
             fi
 
             docker stop ${CONTAINER} 2>/dev/null
