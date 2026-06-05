@@ -69,7 +69,7 @@ All configuration is done via environment variables:
 | `MAX_LOG_LINES` | `1000` | Maximum number of log lines to keep (automatic rotation) |
 | `MAX_RETRIES` | `10` | Number of times to retry finding master container on startup |
 | `RETRY_DELAY` | `10` | Seconds between retry attempts |
-| `RESTART_STOPPED_DEPENDENTS` | `false` | When the master restarts, also start dependents that were stopped at that moment. Default keeps the original behavior (stopped dependents stay stopped). Set to `true` if you want CNAF to bring stopped dependents back up alongside the running ones whenever the master cycles. Note: this only triggers on the master-restart event — CNAF never auto-restarts a container that crashes on its own. |
+| `RESTART_STOPPED_DEPENDENTS` | `false` | When the master restarts, also start dependents that were stopped at that moment. Default keeps the original behavior (stopped dependents stay stopped). Set to `true` if you want CNAF to bring stopped dependents back up alongside the running ones whenever the master cycles. Note: this only triggers on the master-restart event. CNAF never auto-restarts a container that crashes on its own. |
 
 ## Volume Mounts
 

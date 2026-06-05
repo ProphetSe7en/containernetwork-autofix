@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.0] — 2026-06-06
+## [1.3.0] - 2026-06-06
 
 ### Added
 
@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 
   Concept credit: pull request from @conFrituur exploring the same idea.
 
-## [1.2.1] — 2026-06-06
+## [1.2.1] - 2026-06-06
 
 ### Security
 
@@ -32,7 +32,7 @@ All notable changes to this project will be documented in this file.
   passwords, tokens, and API keys for your containers (qBittorrent,
   Sonarr/Radarr, Plex Pass, VPN keys, etc.) stay private even if the
   log file is shared or backed up. The container itself still receives
-  the real value — only the on-disk log string is sanitized.
+  the real value, and only the on-disk log string is sanitized.
 
   If you have an existing log file, delete or rotate it once to clear
   any previously-logged plaintext values.
