@@ -27,16 +27,13 @@ Features:&#xD;
 - Automatic log rotation&#xD;
 - Zero manual configuration needed</Overview>
   <Category>Tools: Network:VPN Status:Stable</Category>
-  <Date>2026-04-26</Date>
+  <Date>2026-06-06</Date>
   <Changes>
-### 2026-04-26
-- v1.2.0: Fixes duplicate `--net=` flag in `docker run` for VPN-routed containers. Templates with `&lt;Network&gt;none&lt;/Network&gt;` plus `--net=container:X` in ExtraParams used to produce two `--net=` flags, which Docker 24+ rejects with exit 125 (containers ended up in a broken Created state, unable to start from Unraid GUI). CNAF now mirrors Unraid Apply's behavior and skips the template Network field when ExtraParams already specifies one. Added regression test in `test-net-dedup.sh`.
-### 2026-04-22
-- v1.1.2: Alpine base image pinned to 3.21 (was `alpine:latest`) for reproducible builds and predictable security-patch cadence. Added SECURITY.md describing attack surface + reporting channel. No runtime behavior change.
-### 2026-04-08
-- v1.1.1: Fix timezone handling in log timestamps. `tzdata` is now installed and the template exposes a Timezone variable. Set `TZ` to your local zone (e.g. `Europe/Oslo`) to get log timestamps in local time. Blank or `UTC` keeps UTC.
-### 2026-04-07
-- v1.1.0: First public release of the ProphetSe7en fork. Three parser bugs fixed via xmlstarlet rewrite: healthchecks broken after rebuild (XML entities not decoded), WebUI right-click broken (missing net.unraid.docker.* labels), hardware passthrough lost on rebuild (Device config type added). Drop-in replacement — only the Repository line changes.
+### 2026-06-06
+- v1.3.0: New optional feature. Set `RESTART_STOPPED_DEPENDENTS=true` (under Show advanced) to have CNAF also start dependents that were stopped at the moment the master container restarts. Default stays `false` (original behavior). Only triggers on the master-restart event, CNAF never auto-restarts a container that crashes on its own.
+- v1.2.1: Security fix. Passwords, API keys, and tokens passed to dependent containers via `-e VAR=value` are now masked in CNAF's log file. The container itself still receives the real value, only the on-disk log line is sanitized. Delete or rotate your existing log to clear any previously-logged plaintext.
+
+[Full changelog](https://github.com/ProphetSe7en/containernetwork-autofix/blob/main/CHANGELOG.md)
   </Changes>
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/prophetse7en/containernetwork-autofix/main/unraid-template.xml</TemplateURL>
