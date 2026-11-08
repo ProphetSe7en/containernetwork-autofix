@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-11-08
+
+### Security
+
+- **Runs on Alpine 3.24.** Alpine 3.21 reached end of life on
+  2026-11-01 and no longer receives security fixes. The image now uses
+  Alpine 3.24, which is supported until 2028.
+
 ## [1.3.0] - 2026-06-06
 
 ### Added
