@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-11-20
+
+### Fixed
+
+- **Containers created by docker compose are no longer removed.** CNAF stopped
+  and removed every dependent before checking whether it could recreate it.
+  Recreation reads `/templates/my-<name>.xml`, which does not exist for a
+  compose container, so those containers were deleted and never came back. If
+  an old template was still lying around from before the container moved to
+  compose, it was recreated from that stale definition instead, with the wrong
+  configuration. CNAF now detects compose containers by their
+  `com.docker.compose.project` label and leaves them alone, logging the project
+  and service it skipped and what to run instead. Nothing changes for
+  containers created through the Unraid Docker tab. Reported in
+  [#6](https://github.com/ProphetSe7en/containernetwork-autofix/issues/6) by
+  @mr-orange.
+
+  If your master container and its dependents all live in one compose project,
+  `network_mode: service:<master>` together with `depends_on` lets compose
+  reattach them itself, and `docker compose up -d` is all that is needed.
+  Recreating compose dependents from CNAF is planned as an opt-in feature for
+  mixed setups, where the master is managed outside compose.
+
 ## [1.3.1] - 2026-11-08
 
 ### Security

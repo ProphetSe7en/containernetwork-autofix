@@ -27,6 +27,28 @@ rotate_log() {
     fi
 }
 
+# is_compose_container reports whether a container was created by docker
+# compose. Compose records the project name in a label, and compose owns the
+# container's definition: there is no dockerMan template for it, so CNAF must
+# not remove it. Before this check, such a container was stopped, removed and
+# then lost, because recreation reads /templates/my-<name>.xml which does not
+# exist for it. Reported as issue #6.
+is_compose_container() {
+    local project
+    project=$(docker inspect "$1" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null)
+    [ -n "${project}" ] && [ "${project}" != "<no value>" ]
+}
+
+# compose_project_of prints the compose project and service for the log line,
+# so the user can see exactly which stack to bring up again.
+compose_project_of() {
+    local project service
+    project=$(docker inspect "$1" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null)
+    service=$(docker inspect "$1" --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null)
+    [ "${service}" = "<no value>" ] && service="?"
+    echo "${project}/${service}"
+}
+
 get_container_id() {
     docker inspect $1 --format "{{.Id}}" 2>/dev/null
 }
@@ -304,6 +326,16 @@ do
 
         for CONTAINER in ${BROKEN_CONTAINERS}; do
             log_message "Processing ${CONTAINER}..."
+
+            # Never remove what cannot be recreated. A compose container has
+            # no template, and recreating it from a stale one left over from
+            # before it moved to compose gives it the wrong configuration.
+            # Leave it to compose and say so.
+            if is_compose_container ${CONTAINER}; then
+                log_message "⊘ ${CONTAINER} is managed by docker compose ($(compose_project_of ${CONTAINER})), left untouched"
+                log_message "  CNAF cannot recreate compose containers. Run 'docker compose up -d' for that project, or set network_mode: service:${MASTER_CONTAINER} with depends_on so compose reattaches it itself."
+                continue
+            fi
 
             CONTAINER_STATE=$(docker inspect ${CONTAINER} --format "{{.State.Status}}" 2>/dev/null)
             WAS_RUNNING=false
