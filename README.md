@@ -70,6 +70,8 @@ All configuration is done via environment variables:
 | `MAX_RETRIES` | `10` | Number of times to retry finding master container on startup |
 | `RETRY_DELAY` | `10` | Seconds between retry attempts |
 | `RESTART_STOPPED_DEPENDENTS` | `false` | When the master restarts, also start dependents that were stopped at that moment. Default keeps the original behavior (stopped dependents stay stopped). Set to `true` if you want CNAF to bring stopped dependents back up alongside the running ones whenever the master cycles. Note: this only triggers on the master-restart event. CNAF never auto-restarts a container that crashes on its own. |
+| `SKIP_COMPOSE_DEPENDENTS` | `true` | Leave containers created by docker compose alone. CNAF cannot recreate them (they have no Unraid template), and removing one loses it, so the default is to skip and log which compose project to bring up instead. Set to `false` only if you relied on the old behaviour and your `my-<name>.xml` templates are accurate for those containers. |
+| `FIX_STALE_ON_START` | `true` | When CNAF starts, repair containers that point at a network namespace which no longer exists. They have no network in that state, so reconnecting them can only help; this covers a master that changed while CNAF was not running. Set to `false` to only report them. |
 
 ## Volume Mounts
 

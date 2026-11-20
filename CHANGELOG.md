@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-11-20
+
+### Fixed
+
+- **A container stranded by one missed cycle is no longer stranded for ever.**
+  CNAF only looked for dependents attached to the master's *current* id, so a
+  container that missed a cycle, because CNAF was not running, because it was
+  stopped at the time, or because a pass was skipped, pointed at a dead
+  namespace that CNAF never looked at again. Its network stayed broken until
+  someone noticed. CNAF now also finds containers whose namespace target no
+  longer exists, and repairs them, both on a master restart and at startup.
+
+  The check is deliberately narrow: a container is only touched when its
+  namespace target is gone **and** its Unraid template names the master
+  container. A container sharing some other container's namespace is left
+  alone, with a line in the log saying so.
+
+### Added
+
+- **`FIX_STALE_ON_START`** (default `true`) repairs stranded containers when
+  CNAF starts. They have no network at that point, so reconnecting them can
+  only help. Set to `false` to have them reported in the log and left alone.
+- **`SKIP_COMPOSE_DEPENDENTS`** (default `true`) to control the compose
+  behaviour introduced in 1.3.2. Skipping is the safe default, but if you were
+  relying on CNAF recreating a compose container from an accurate
+  `my-<name>.xml`, 1.3.2 would have left it stranded instead. Set this to
+  `false` to get the previous behaviour back.
+
+### Changed
+
+- **The log now says what actually happened.** Three cases used to be
+  misleading or silent:
+  - A recreate is verified afterwards. CNAF checks that the container exists,
+    whether it is running, and that it is attached to the **current** master
+    container, and logs that. It no longer reports success purely because
+    `docker run` returned 0.
+  - When something else recreated the container first, usually Unraid's own
+    dependent rebuild, `docker run` fails on the container name. That was
+    logged as `✗ ERROR: Failed to recreate <name>` even though the container
+    was fine. CNAF now checks the result and reports it as already handled.
+  - A failed `docker rm` was hidden by `2>/dev/null`, and the name conflict it
+    caused was reported instead. The removal failure is now logged with
+    docker's own message, and CNAF stops working on that container rather than
+    running into the conflict.
+- **A missing master container now says what to do.** The old message only
+  said the container was not found. CNAF now points out a name that differs
+  only in capitalisation, which looks correct at a glance, and otherwise lists
+  the containers on the host so the right name can be copied. Container names
+  are case sensitive, and a single wrong character means CNAF never triggers.
+
 ## [1.3.2] - 2026-11-20
 
 ### Fixed

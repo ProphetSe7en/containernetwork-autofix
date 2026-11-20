@@ -11,6 +11,13 @@ MAX_LOG_LINES="${MAX_LOG_LINES:-1000}"
 MAX_RETRIES="${MAX_RETRIES:-10}"
 RETRY_DELAY="${RETRY_DELAY:-10}"
 RESTART_STOPPED_DEPENDENTS="${RESTART_STOPPED_DEPENDENTS:-false}"
+# Compose containers are skipped by default: CNAF cannot recreate them and
+# removing them loses them (issue #6). Set to false only if you relied on the
+# old behaviour and your my-<name>.xml templates are accurate for them.
+SKIP_COMPOSE_DEPENDENTS="${SKIP_COMPOSE_DEPENDENTS:-true}"
+# Containers left pointing at a dead namespace are already without network, so
+# repairing them when CNAF starts is safe. Set to false to only log them.
+FIX_STALE_ON_START="${FIX_STALE_ON_START:-true}"
 # ================================================================
 
 log_message() {
@@ -49,8 +56,99 @@ compose_project_of() {
     echo "${project}/${service}"
 }
 
+# verify_dependent checks the result of a recreate instead of trusting the
+# exit code. Two things go wrong in practice and both used to be invisible:
+# the container can come back attached to the old namespace, and Unraid
+# recreates dependents itself, so ours can collide with a container that is
+# already correct. Returns 0 when the container is attached to the expected
+# master.
+verify_dependent() {
+    local container=$1 expected_master=$2
+    local mode status
+    mode=$(docker inspect "${container}" --format "{{.HostConfig.NetworkMode}}" 2>/dev/null)
+    status=$(docker inspect "${container}" --format "{{.State.Status}}" 2>/dev/null)
+    if [ -z "${status}" ]; then
+        log_message "  verify: ${container} does not exist"
+        return 1
+    fi
+    # Docker normally normalises --net=container:<name> to the master's id,
+    # which is what CNAF matches on everywhere. Accept the name form too, so a
+    # setup where it is not normalised is not reported as a failure.
+    case "${mode}" in
+        container:${expected_master}*|container:${MASTER_CONTAINER})
+            log_message "  verify: ${container} is ${status} and attached to the current ${MASTER_CONTAINER}"
+            return 0
+            ;;
+        container:*)
+            log_message "  verify: ${container} is ${status} but still attached to ${mode}, not the current ${MASTER_CONTAINER}"
+            return 1
+            ;;
+        *)
+            log_message "  verify: ${container} is ${status} with network mode ${mode:-unknown}"
+            return 1
+            ;;
+    esac
+}
+
 get_container_id() {
     docker inspect $1 --format "{{.Id}}" 2>/dev/null
+}
+
+# template_targets_master reports whether a container's Unraid template says
+# it belongs to our master container. This is the evidence used before
+# touching a container whose network namespace target no longer exists: the
+# stored network mode only tells us which id it had, not whose it was.
+template_targets_master() {
+    local template="/templates/my-${1}.xml"
+    [ -f "${template}" ] || return 1
+    local extra network
+    extra=$(xml_get "${template}" "/Container/ExtraParams")
+    network=$(xml_get "${template}" "/Container/Network")
+    case "${extra} ${network}" in
+        *container:${MASTER_CONTAINER}*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# get_stale_dependents finds containers whose network namespace points at a
+# container that no longer exists. Those have no network at all, and CNAF used
+# to be blind to them: get_dependent_containers only matches the *current*
+# master id, so a container that missed one cycle (CNAF was down, the container
+# was stopped, a pass was skipped) stayed broken for ever.
+#
+# Deliberately conservative. A container is only reported when its namespace
+# target is gone AND its template names our master, so containers that share
+# another container's namespace are never touched.
+get_stale_dependents() {
+    local master_id=$1
+    local stale=()
+
+    for container in $(docker ps -a --format "{{.Names}}"); do
+        [ "$container" = "$MASTER_CONTAINER" ] && continue
+        local network_mode target
+        network_mode=$(docker inspect $container --format "{{.HostConfig.NetworkMode}}" 2>/dev/null)
+        case "${network_mode}" in container:*) ;; *) continue ;; esac
+        target=${network_mode#container:}
+
+        # Already on the current master, or stored by name, which verify
+        # treats as correct.
+        [[ "${master_id}" == ${target}* ]] && continue
+        [ "${target}" = "${MASTER_CONTAINER}" ] && continue
+
+        # The namespace target still exists, so this is somebody else's
+        # pairing. Leave it alone.
+        docker inspect "${target}" >/dev/null 2>&1 && continue
+
+        if template_targets_master "${container}"; then
+            stale+=("$container")
+        else
+            # Note: this function's stdout is captured by the caller, so the
+            # log line has to go to stderr or it ends up in the returned list.
+            log_message "  ${container} points at a container that is gone, but its template does not name ${MASTER_CONTAINER}, so CNAF leaves it alone" >&2
+        fi
+    done
+
+    echo "${stale[@]}"
 }
 
 get_dependent_containers() {
@@ -260,11 +358,87 @@ recreate_container_from_template() {
     return $?
 }
 
+# process_dependent recreates one dependent container and reports what
+# actually happened. Extracted so both the master-restart trigger and the
+# startup check for stranded containers use exactly the same path.
+process_dependent() {
+    local CONTAINER=$1 NEW_MASTER_ID=$2
+    local CONTAINER_STATE WAS_RUNNING RM_OUTPUT
+
+    log_message "Processing ${CONTAINER}..."
+
+    # Never remove what cannot be recreated. A compose container has
+    # no template, and recreating it from a stale one left over from
+    # before it moved to compose gives it the wrong configuration.
+    # Leave it to compose and say so.
+    if [ "${SKIP_COMPOSE_DEPENDENTS}" = "true" ] && is_compose_container ${CONTAINER}; then
+        log_message "⊘ ${CONTAINER} is managed by docker compose ($(compose_project_of ${CONTAINER})), left untouched"
+        log_message "  CNAF cannot recreate compose containers. Run 'docker compose up -d' for that project, or set network_mode: service:${MASTER_CONTAINER} with depends_on so compose reattaches it itself."
+        return 0
+    fi
+
+    CONTAINER_STATE=$(docker inspect ${CONTAINER} --format "{{.State.Status}}" 2>/dev/null)
+    WAS_RUNNING=false
+    if [ "$CONTAINER_STATE" == "running" ]; then
+        WAS_RUNNING=true
+        log_message "${CONTAINER} was running, will restart after rebuild"
+    elif [ "$RESTART_STOPPED_DEPENDENTS" = "true" ]; then
+        # Opt-in: pick up dependents that were stopped at trigger time
+        # and start them after the rebuild. Only fires during the
+        # master-container restart trigger, not as a continuous
+        # healthcheck loop.
+        WAS_RUNNING=true
+        log_message "${CONTAINER} was ${CONTAINER_STATE}, will start after rebuild (RESTART_STOPPED_DEPENDENTS=true)"
+    else
+        log_message "${CONTAINER} was ${CONTAINER_STATE}, will remain stopped after rebuild"
+    fi
+
+    docker stop ${CONTAINER} 2>/dev/null
+    RM_OUTPUT=$(docker rm ${CONTAINER} 2>&1)
+    if docker inspect ${CONTAINER} >/dev/null 2>&1; then
+        # Removal failed, so docker run would only fail on the name.
+        # Before this check the failure was hidden by 2>/dev/null and
+        # the next step reported a confusing name conflict instead.
+        if verify_dependent ${CONTAINER} ${NEW_MASTER_ID:0:12}; then
+            log_message "⊘ ${CONTAINER} could not be removed but is already on the current ${MASTER_CONTAINER}, left as is"
+        else
+            log_message "✗ ERROR: could not remove ${CONTAINER}: ${RM_OUTPUT}"
+        fi
+        return 0
+    fi
+
+    recreate_container_from_template ${CONTAINER}
+
+    if [ $? -eq 0 ]; then
+        if verify_dependent ${CONTAINER} ${NEW_MASTER_ID:0:12}; then
+            log_message "✓ ${CONTAINER} recreated successfully!"
+        else
+            log_message "✗ ERROR: ${CONTAINER} was recreated but is not on the current ${MASTER_CONTAINER}"
+        fi
+
+        if [ "$WAS_RUNNING" = false ]; then
+            docker stop ${CONTAINER} 2>/dev/null
+            log_message "${CONTAINER} stopped (preserving original state)"
+        fi
+    else
+        # A name conflict here means something else recreated it first,
+        # usually Unraid's own dependent rebuild. That is not a failure
+        # if the result is correct, so check before crying wolf.
+        if verify_dependent ${CONTAINER} ${NEW_MASTER_ID:0:12}; then
+            log_message "⊘ ${CONTAINER} was already recreated by something else, left as is"
+        else
+            log_message "✗ ERROR: Failed to recreate ${CONTAINER}"
+        fi
+    fi
+}
+
 log_message "ContainerNetwork AutoFix (CNAF) starting..."
 log_message "Master Container: ${MASTER_CONTAINER}"
 log_message "Restart Wait Time: ${RESTART_WAIT_TIME}s"
 log_message "Max Retries: ${MAX_RETRIES}"
 log_message "Restart Stopped Dependents: ${RESTART_STOPPED_DEPENDENTS}"
+log_message "Skip Compose Dependents: ${SKIP_COMPOSE_DEPENDENTS}"
+log_message "Fix Stranded On Start: ${FIX_STALE_ON_START}"
 rotate_log
 
 # Wait for master container to be ready with retry logic
@@ -285,7 +459,22 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
 done
 
 if [ -z "$CURRENT_MASTER_ID" ]; then
-    log_message "✗ ERROR: ${MASTER_CONTAINER} not found after ${MAX_RETRIES} attempts. Exiting."
+    log_message "✗ ERROR: ${MASTER_CONTAINER} not found after ${MAX_RETRIES} attempts."
+    # A name that does not match any container is the common cause, and the
+    # old message did not help anyone spot it. Show what does exist, and call
+    # out a container whose name differs only in capitalisation, which looks
+    # correct at a glance.
+    CASE_MATCH=$(docker ps -a --format '{{.Names}}' 2>/dev/null \
+        | grep -ix -- "${MASTER_CONTAINER}" | head -1)
+    if [ -n "${CASE_MATCH}" ]; then
+        log_message "  Did you mean '${CASE_MATCH}'? Container names are case sensitive."
+    else
+        log_message "  MASTER_CONTAINER is set to '${MASTER_CONTAINER}'. Containers on this host:"
+        docker ps -a --format '{{.Names}}' 2>/dev/null | sort | head -25 \
+            | while read -r n; do log_message "    ${n}"; done
+        log_message "  Set MASTER_CONTAINER to one of those names exactly, including capitalisation."
+    fi
+    log_message "Exiting."
     exit 1
 fi
 
@@ -295,6 +484,22 @@ if [ -n "$INITIAL_DEPENDENTS" ]; then
     log_message "Found dependent containers: ${INITIAL_DEPENDENTS}"
 else
     log_message "No dependent containers found (yet)"
+fi
+
+# Containers stranded on a namespace that no longer exists have no network at
+# all, so fixing them at startup can only help: it covers the case where the
+# master changed while CNAF was not running. Set FIX_STALE_ON_START=false to
+# only report them.
+STARTUP_STALE=$(get_stale_dependents ${CURRENT_MASTER_ID})
+if [ -n "${STARTUP_STALE}" ]; then
+    log_message "Stranded containers found at startup: ${STARTUP_STALE}"
+    if [ "${FIX_STALE_ON_START}" = "true" ]; then
+        for CONTAINER in ${STARTUP_STALE}; do
+            process_dependent ${CONTAINER} ${CURRENT_MASTER_ID}
+        done
+    else
+        log_message "  FIX_STALE_ON_START=false, leaving them as they are"
+    fi
 fi
 
 # Run the events pipeline as a background job so that bash's main thread
@@ -318,6 +523,16 @@ do
     log_message "New ${MASTER_CONTAINER} ID: ${NEW_MASTER_ID:0:12}..."
 
     BROKEN_CONTAINERS=$(get_dependent_containers ${CURRENT_MASTER_ID})
+    # Pick up anything left stranded on a namespace that no longer exists, so
+    # one missed cycle is not permanent.
+    STALE_CONTAINERS=$(get_stale_dependents ${NEW_MASTER_ID})
+    if [ -n "${STALE_CONTAINERS}" ]; then
+        log_message "Also found stranded containers from an earlier cycle: ${STALE_CONTAINERS}"
+        # The two sets overlap: once the old master is gone, its dependents are
+        # stranded by definition. Deduplicate, or each one is torn down and
+        # rebuilt twice in the same pass.
+        BROKEN_CONTAINERS=$(printf '%s\n' ${BROKEN_CONTAINERS} ${STALE_CONTAINERS} | sort -u | tr '\n' ' ')
+    fi
 
     if [ -z "$BROKEN_CONTAINERS" ]; then
         log_message "No broken containers found. All dependent containers may have auto-reconnected."
@@ -325,49 +540,7 @@ do
         log_message "Found broken containers: ${BROKEN_CONTAINERS}"
 
         for CONTAINER in ${BROKEN_CONTAINERS}; do
-            log_message "Processing ${CONTAINER}..."
-
-            # Never remove what cannot be recreated. A compose container has
-            # no template, and recreating it from a stale one left over from
-            # before it moved to compose gives it the wrong configuration.
-            # Leave it to compose and say so.
-            if is_compose_container ${CONTAINER}; then
-                log_message "⊘ ${CONTAINER} is managed by docker compose ($(compose_project_of ${CONTAINER})), left untouched"
-                log_message "  CNAF cannot recreate compose containers. Run 'docker compose up -d' for that project, or set network_mode: service:${MASTER_CONTAINER} with depends_on so compose reattaches it itself."
-                continue
-            fi
-
-            CONTAINER_STATE=$(docker inspect ${CONTAINER} --format "{{.State.Status}}" 2>/dev/null)
-            WAS_RUNNING=false
-            if [ "$CONTAINER_STATE" == "running" ]; then
-                WAS_RUNNING=true
-                log_message "${CONTAINER} was running, will restart after rebuild"
-            elif [ "$RESTART_STOPPED_DEPENDENTS" = "true" ]; then
-                # Opt-in: pick up dependents that were stopped at trigger time
-                # and start them after the rebuild. Only fires during the
-                # master-container restart trigger, not as a continuous
-                # healthcheck loop.
-                WAS_RUNNING=true
-                log_message "${CONTAINER} was ${CONTAINER_STATE}, will start after rebuild (RESTART_STOPPED_DEPENDENTS=true)"
-            else
-                log_message "${CONTAINER} was ${CONTAINER_STATE}, will remain stopped after rebuild"
-            fi
-
-            docker stop ${CONTAINER} 2>/dev/null
-            docker rm ${CONTAINER} 2>/dev/null
-
-            recreate_container_from_template ${CONTAINER}
-
-            if [ $? -eq 0 ]; then
-                log_message "✓ ${CONTAINER} recreated successfully!"
-
-                if [ "$WAS_RUNNING" = false ]; then
-                    docker stop ${CONTAINER} 2>/dev/null
-                    log_message "${CONTAINER} stopped (preserving original state)"
-                fi
-            else
-                log_message "✗ ERROR: Failed to recreate ${CONTAINER}"
-            fi
+            process_dependent ${CONTAINER} ${NEW_MASTER_ID}
         done
     fi
 
