@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **`RECREATE_COMPOSE_DEPENDENTS`** (default `false`). Opt-in recreation of
+  dependents created by docker compose, with `docker compose up -d --no-deps
+  --force-recreate <service>` from the project, service and compose files in
+  the container's labels (issue #6). Label values are validated before they
+  reach the command line, the container is not stopped or removed beforehand,
+  the result is verified (running and attached to the current master), and a
+  compose container never falls back to a dockerMan template. Takes precedence
+  over `SKIP_COMPOSE_DEPENDENTS`.
+- `docker-cli-compose` is now part of the image, so the compose binary no
+  longer needs to be bind-mounted from the host.
+
 ## [1.3.3] - 2026-11-20
 
 ### Fixed
