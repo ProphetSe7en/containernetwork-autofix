@@ -15,6 +15,12 @@ RESTART_STOPPED_DEPENDENTS="${RESTART_STOPPED_DEPENDENTS:-false}"
 # removing them loses them (issue #6). Set to false only if you relied on the
 # old behaviour and your my-<name>.xml templates are accurate for them.
 SKIP_COMPOSE_DEPENDENTS="${SKIP_COMPOSE_DEPENDENTS:-true}"
+# Opt-in: recreate compose dependents with docker compose itself, from the
+# compose files recorded in the container's labels. The compose files (and
+# their project directory) must be mounted into CNAF at the same paths as on
+# the host. A compose container is never recreated from a template on this
+# path, whatever fails. Takes precedence over SKIP_COMPOSE_DEPENDENTS.
+RECREATE_COMPOSE_DEPENDENTS="${RECREATE_COMPOSE_DEPENDENTS:-false}"
 # Containers left pointing at a dead namespace are already without network, so
 # repairing them when CNAF starts is safe. Set to false to only log them.
 FIX_STALE_ON_START="${FIX_STALE_ON_START:-true}"
@@ -54,6 +60,107 @@ compose_project_of() {
     service=$(docker inspect "$1" --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null)
     [ "${service}" = "<no value>" ] && service="?"
     echo "${project}/${service}"
+}
+
+# compose_label prints one com.docker.compose.* label of a container, or
+# nothing. docker inspect prints the literal string "<no value>" for a label
+# that is not set, which must never reach a command line.
+compose_label() {
+    local value
+    value=$(docker inspect "$1" --format "{{index .Config.Labels \"com.docker.compose.$2\"}}" 2>/dev/null)
+    [ "${value}" = "<no value>" ] && value=""
+    printf '%s' "${value}"
+}
+
+# valid_compose_name accepts the characters compose allows in project and
+# service names. Label values are passed to docker compose as arguments, so
+# anything else (empty, whitespace, a leading dash that would read as an
+# option) is rejected rather than passed through.
+valid_compose_name() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+}
+
+# recreate_compose_dependent recreates a compose dependent with docker compose,
+# using the project, service, working directory and config files compose
+# recorded in the container's labels. It does not stop or remove the container
+# first: compose replaces it only once it has everything it needs, so every
+# early failure leaves the container exactly as it was. It never falls back to
+# a dockerMan template. Returns 0 only when the container is verified running
+# (or stopped on purpose) and attached to the current master.
+recreate_compose_dependent() {
+    local CONTAINER=$1 NEW_MASTER_ID=$2 WAS_RUNNING=$3
+    local PROJECT SERVICE WORKDIR FILES f found=0 rc status
+    local ARGS=()
+
+    PROJECT=$(compose_label "${CONTAINER}" project)
+    SERVICE=$(compose_label "${CONTAINER}" service)
+    WORKDIR=$(compose_label "${CONTAINER}" project.working_dir)
+    FILES=$(compose_label "${CONTAINER}" project.config_files)
+
+    if ! valid_compose_name "${PROJECT}" || ! valid_compose_name "${SERVICE}"; then
+        log_message "✗ ERROR: ${CONTAINER} has an unusable compose project/service label ('${PROJECT}'/'${SERVICE}'), left untouched"
+        return 1
+    fi
+    log_message "${CONTAINER} is managed by docker compose (project ${PROJECT}, service ${SERVICE}), recreating it with compose"
+
+    if ! docker compose version >/dev/null 2>&1; then
+        log_message "✗ ERROR: docker compose is not available inside CNAF, ${CONTAINER} left untouched"
+        return 1
+    fi
+
+    ARGS=(-p "${PROJECT}")
+    if [ -n "${WORKDIR}" ]; then
+        if [ -d "${WORKDIR}" ]; then
+            ARGS+=(--project-directory "${WORKDIR}")
+        else
+            log_message "  project directory ${WORKDIR} is not mounted into CNAF, relying on the compose files' own location"
+        fi
+    fi
+
+    local IFS_SAVE=$IFS FLIST=()
+    IFS=',' read -ra FLIST <<< "${FILES}"
+    IFS=$IFS_SAVE
+    for f in "${FLIST[@]}"; do
+        [ -z "${f}" ] && continue
+        if [ -f "${f}" ]; then
+            ARGS+=(-f "${f}")
+            found=1
+        else
+            log_message "  compose file ${f} is not mounted into CNAF, skipped"
+        fi
+    done
+    if [ "${found}" -eq 0 ]; then
+        log_message "✗ ERROR: none of the compose files of ${CONTAINER} are mounted into CNAF (${FILES:-no config_files label}), left untouched"
+        log_message "  Mount them read-only at the same path as on the host, e.g. -v /path/to/project:/path/to/project:ro"
+        return 1
+    fi
+
+    log_message "Executing: docker compose ${ARGS[*]} up -d --no-deps --force-recreate ${SERVICE}"
+    docker compose "${ARGS[@]}" up -d --no-deps --force-recreate "${SERVICE}" 2>&1 \
+        | while IFS= read -r line; do log_message "  compose: ${line}"; done
+    rc=${PIPESTATUS[0]}
+    if [ "${rc}" -ne 0 ]; then
+        log_message "✗ ERROR: docker compose exited with ${rc} for ${CONTAINER}"
+    fi
+
+    # Verify whatever compose did, success or not: the container must exist,
+    # be attached to the current master and be running.
+    if ! verify_dependent "${CONTAINER}" "${NEW_MASTER_ID:0:12}"; then
+        log_message "✗ ERROR: ${CONTAINER} is not attached to the current ${MASTER_CONTAINER} after compose"
+        return 1
+    fi
+    status=$(docker inspect "${CONTAINER}" --format "{{.State.Status}}" 2>/dev/null)
+    if [ "${status}" != "running" ]; then
+        log_message "✗ ERROR: ${CONTAINER} was recreated by compose but is ${status:-missing}, not running"
+        return 1
+    fi
+
+    if [ "${WAS_RUNNING}" = false ]; then
+        docker stop "${CONTAINER}" >/dev/null 2>&1
+        log_message "${CONTAINER} stopped (preserving original state)"
+    fi
+    log_message "✓ ${CONTAINER} recreated with docker compose"
+    return 0
 }
 
 # verify_dependent checks the result of a recreate instead of trusting the
@@ -367,6 +474,18 @@ process_dependent() {
 
     log_message "Processing ${CONTAINER}..."
 
+    # Opt-in compose path. Handled completely here: whatever happens, a
+    # compose container never continues to the stop/remove/template path.
+    if [ "${RECREATE_COMPOSE_DEPENDENTS}" = "true" ] && is_compose_container ${CONTAINER}; then
+        local compose_was_running=false
+        CONTAINER_STATE=$(docker inspect ${CONTAINER} --format "{{.State.Status}}" 2>/dev/null)
+        if [ "$CONTAINER_STATE" == "running" ] || [ "$RESTART_STOPPED_DEPENDENTS" = "true" ]; then
+            compose_was_running=true
+        fi
+        recreate_compose_dependent ${CONTAINER} ${NEW_MASTER_ID} ${compose_was_running}
+        return 0
+    fi
+
     # Never remove what cannot be recreated. A compose container has
     # no template, and recreating it from a stale one left over from
     # before it moved to compose gives it the wrong configuration.
@@ -438,6 +557,7 @@ log_message "Restart Wait Time: ${RESTART_WAIT_TIME}s"
 log_message "Max Retries: ${MAX_RETRIES}"
 log_message "Restart Stopped Dependents: ${RESTART_STOPPED_DEPENDENTS}"
 log_message "Skip Compose Dependents: ${SKIP_COMPOSE_DEPENDENTS}"
+log_message "Recreate Compose Dependents: ${RECREATE_COMPOSE_DEPENDENTS}"
 log_message "Fix Stranded On Start: ${FIX_STALE_ON_START}"
 rotate_log
 

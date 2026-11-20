@@ -14,10 +14,11 @@ LABEL org.opencontainers.image.version="${VERSION}"
 # Install required packages
 # - bash:        entrypoint shell
 # - docker-cli:  container management
+# - docker-cli-compose: docker compose, for RECREATE_COMPOSE_DEPENDENTS
 # - xmlstarlet:  proper XML parser (replaces brittle sed-based template parsing)
 # - procps:      pgrep for healthcheck (busybox pgrep doesn't support -f)
 # - tzdata:      zoneinfo files so the TZ env var is honored in log timestamps
-RUN apk add --no-cache bash docker-cli xmlstarlet procps tzdata
+RUN apk add --no-cache bash docker-cli docker-cli-compose xmlstarlet procps tzdata
 
 # Create app directory
 WORKDIR /app
